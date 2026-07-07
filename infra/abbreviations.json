@@ -1,0 +1,16 @@
+{
+  "analytics": "components",
+  "apiManagementService": "apim-",
+  "appConfigurationStore": "appcs-",
+  "applicationInsights": "appi-",
+  "appServicePlan": "plan-",
+  "appServiceWebApp": "app-",
+  "cognitiveServicesAccount": "cog-",
+  "cognitiveServicesFoundry": "aif-",
+  "containerApp": "ca-",
+  "containerAppsEnvironment": "cae-",
+  "containerRegistry": "cr",
+  "logAnalyticsWorkspace": "log-",
+  "managedIdentityUserAssigned": "id-",
+  "resourceGroup": "rg-"
+}

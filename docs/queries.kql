@@ -1,0 +1,183 @@
+// =====================================================================================
+// Sample KQL for oid-based search & per-user token accounting.
+//
+// Telemetry destinations:
+//   * AppRequests (App Insights)   - one row per gateway hop (Agent GW / Model GW / MCP GW).
+//                    The caller's Entra oid is logged as the request header "x-user-oid" and
+//                    surfaces in Properties under the key "Request-x-user-oid". The APIM
+//                    request id is in Properties["Request Id"] (joins to LLM-log CorrelationId).
+//   * AppMetrics (App Insights)    - custom token metrics emitted by the APIM
+//                    llm-emit-token-metric policy, carrying oid + gateway as custom dimensions
+//                    in the Properties bag. Metric names: "Total Tokens", "Prompt Tokens",
+//                    "Completion Tokens", etc. (There is no queryable Namespace column; scope
+//                    by metric Name or by the presence of the oid dimension.)
+//   * ApiManagementGatewayLlmLog (resource log) - native AI-gateway LLM log with prompts,
+//                    completions and token counts. Requires the diagnostic setting in
+//                    resource-specific (Dedicated) mode (logAnalyticsDestinationType) - see
+//                    apim.bicep. oid is attached by joining CorrelationId to the App Insights
+//                    request telemetry Properties["Request Id"].
+//
+// Notes:
+//   - These queries target the Log Analytics workspace directly (workspace-based App Insights),
+//     so they use AppRequests / AppMetrics. Inside the Application Insights resource "Logs"
+//     blade you can use the classic aliases requests / customMetrics instead, and the oid key
+//     is customDimensions["Request-x-user-oid"].
+//   - Replace <OID> with a user's Entra object id.
+// =====================================================================================
+
+// -------------------------------------------------------------------------------------
+// 1) Per-oid gateway activity (log search by oid across Agent GW / Model GW / MCP GW).
+// -------------------------------------------------------------------------------------
+AppRequests
+| where TimeGenerated > ago(24h)
+| extend oid = tostring(Properties['Request-x-user-oid'])
+| where isnotempty(oid)
+| summarize requests = count(), gateways = make_set(Name) by oid
+| order by requests desc
+
+// -------------------------------------------------------------------------------------
+// 2) Every gateway hop for one user (timeline), including Model GW and MCP GW calls.
+// -------------------------------------------------------------------------------------
+AppRequests
+| where TimeGenerated > ago(24h)
+| extend oid = tostring(Properties['Request-x-user-oid'])
+| where oid == "<OID>"
+| project TimeGenerated, Name, Url, ResultCode, DurationMs, OperationId, oid
+| order by TimeGenerated desc
+
+// -------------------------------------------------------------------------------------
+// 3) Per-oid MCP tool activity (which MCP server each user hit and how often).
+//    The agent injects oid on every MCP request (initialize, list, tool calls, delete).
+// -------------------------------------------------------------------------------------
+AppRequests
+| where TimeGenerated > ago(24h)
+| where Name has "/mcp-"
+| extend oid = tostring(Properties['Request-x-user-oid'])
+| where isnotempty(oid)
+| summarize calls = count() by oid, mcpServer = tostring(split(Name, " ")[-1]), method = tostring(split(Name, " ")[0])
+| order by oid asc, calls desc
+
+
+// -------------------------------------------------------------------------------------
+// 4) Per-oid model token consumption (custom metric from llm-emit-token-metric).
+//    dimensions oid + gateway live in the Properties bag. Requires metrics:true on the APIM
+//    applicationinsights diagnostic (configured in this repo). This is the primary, most
+//    reliable per-user token source (works for streaming and non-streaming).
+// -------------------------------------------------------------------------------------
+AppMetrics
+| where TimeGenerated > ago(24h)
+| where Name in ('Total Tokens', 'Prompt Tokens', 'Completion Tokens')
+| extend oid = tostring(Properties['oid']), gateway = tostring(Properties['gateway'])
+| where isnotempty(oid)
+| summarize tokens = sum(Sum) by oid, gateway, Name
+| order by oid asc, Name asc
+
+// -------------------------------------------------------------------------------------
+// 5) Token consumption for a single user over time.
+// -------------------------------------------------------------------------------------
+AppMetrics
+| where TimeGenerated > ago(7d)
+| where Name in ('Total Tokens', 'Prompt Tokens', 'Completion Tokens')
+| extend oid = tostring(Properties['oid'])
+| where oid == "<OID>"
+| summarize tokens = sum(Sum) by bin(TimeGenerated, 1h), Name
+| render timechart
+
+// -------------------------------------------------------------------------------------
+// 6) Fallback: derive per-oid model tokens from the Model GW response body.
+//    llm-emit-token-metric is the primary source; this fallback works for non-streaming
+//    responses whose body fits under the 8 KB diagnostic body cap (the Responses API
+//    returns usage.total_tokens near the end of the payload).
+// -------------------------------------------------------------------------------------
+AppRequests
+| where TimeGenerated > ago(24h)
+| where Name == "POST /model/openai/v1/responses"
+| extend oid = tostring(Properties['Request-x-user-oid'])
+| extend body = tostring(Properties['Response-Body'])
+| extend inTok = toint(extract(@'"input_tokens":\s*(\d+)', 1, body))
+| extend outTok = toint(extract(@'"output_tokens":\s*(\d+)', 1, body))
+| extend totTok = toint(extract(@'"total_tokens":\s*(\d+)', 1, body))
+| where isnotempty(oid)
+| summarize modelCalls = count(), inputTokens = sum(inTok), outputTokens = sum(outTok), totalTokens = sum(totTok) by oid
+| order by totalTokens desc
+
+// -------------------------------------------------------------------------------------
+// 7) Native LLM logging (ApiManagementGatewayLlmLog) - token usage per model over time.
+//    Requires the GatewayLlmLogs resource-log category enabled AND the diagnostic setting in
+//    resource-specific (Dedicated) mode (apim.bicep) AND the per-API 'azuremonitor' diagnostic
+//    with largeLanguageModel logging (apim-model-gw.bicep). Populated because the Model GW is
+//    imported from the Azure OpenAI v1 OpenAPI spec (LLM-aware), so APIM parses token usage.
+//    Note: APIM emits paired rows per call (a prompt row + a token row); filter TotalTokens > 0
+//    to count the usage-bearing rows.
+// -------------------------------------------------------------------------------------
+ApiManagementGatewayLlmLog
+| where TimeGenerated > ago(24h)
+| where TotalTokens > 0
+| summarize
+    Requests = count(),
+    PromptTokens = sum(PromptTokens),
+    CompletionTokens = sum(CompletionTokens),
+    TotalTokens = sum(TotalTokens)
+  by DeploymentName, bin(TimeGenerated, 1h)
+| order by TimeGenerated desc
+
+// -------------------------------------------------------------------------------------
+// 8) Native LLM logging joined with oid (per-user prompts/completions/tokens).
+//    The LLM content log has no oid column, so correlate its CorrelationId with the APIM
+//    request id captured on the App Insights request telemetry (Properties["Request Id"]).
+// -------------------------------------------------------------------------------------
+let userReqs =
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | where isnotempty(oid) and isnotempty(reqId)
+    | distinct reqId, oid;
+ApiManagementGatewayLlmLog
+| where TimeGenerated > ago(24h)
+| where TotalTokens > 0
+| join kind=inner (userReqs) on $left.CorrelationId == $right.reqId
+| summarize PromptTokens = sum(PromptTokens), CompletionTokens = sum(CompletionTokens),
+            TotalTokens = sum(TotalTokens), Requests = dcount(CorrelationId),
+            Model = any(DeploymentName)
+  by oid
+| order by TotalTokens desc
+
+// -------------------------------------------------------------------------------------
+// 8b) Native LLM logging: per-user prompt & completion text (content inspection).
+// -------------------------------------------------------------------------------------
+let userReqs =
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | where oid == "<OID>" and isnotempty(reqId)
+    | distinct reqId, oid;
+ApiManagementGatewayLlmLog
+| where TimeGenerated > ago(24h)
+| join kind=inner (userReqs) on $left.CorrelationId == $right.reqId
+| project TimeGenerated, oid, DeploymentName, TotalTokens,
+          RequestMessages, ResponseMessages
+| order by TimeGenerated desc
+
+// -------------------------------------------------------------------------------------
+// 8c) TRANSITION-PERIOD VARIANT of #8, reading the generic AzureDiagnostics table.
+//     The diagnostic setting is configured in resource-specific (Dedicated) mode so LLM logs
+//     land in ApiManagementGatewayLlmLog (queries #7/#8). When switching an existing instance
+//     to Dedicated, it can take API Management some time to route logs to the resource-specific
+//     table; during that window the same data is in AzureDiagnostics (Category "GatewayLlmLogs")
+//     with *_d / *_s suffixed columns. Use this variant until #7/#8 return rows, then drop it.
+// -------------------------------------------------------------------------------------
+let userReqs =
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | where isnotempty(oid) and isnotempty(reqId)
+    | distinct reqId, oid;
+AzureDiagnostics
+| where TimeGenerated > ago(24h)
+| where Category == "GatewayLlmLogs"
+| join kind=inner (userReqs) on $left.CorrelationId == $right.reqId
+| summarize PromptTokens = sum(promptTokens_d), CompletionTokens = sum(completionTokens_d),
+            TotalTokens = sum(totalTokens_d), Requests = dcount(CorrelationId)
+  by oid, DeploymentName = tostring(column_ifexists("DeploymentName_s", ""))
+| order by TotalTokens desc
+

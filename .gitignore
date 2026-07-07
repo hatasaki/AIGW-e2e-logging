@@ -1,0 +1,23 @@
+# Azure Developer CLI
+.azure/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.tmpvenv/
+.pytest_cache/
+.mypy_cache/
+
+# Local settings / secrets
+*.local
+.env
+local.settings.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*.log

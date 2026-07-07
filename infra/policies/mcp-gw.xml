@@ -1,0 +1,31 @@
+<!--
+  MCP GW policy.
+  MCP uses streaming (Streamable HTTP / SSE), so the response body is never read or logged
+  (that would break the transport). Instead we record the caller's oid and per-user MCP call
+  counts to Application Insights via trace + emit-metric, and the request (tool-call) body is
+  captured through the API diagnostic. This keeps MCP traffic searchable by oid.
+-->
+<policies>
+  <inbound>
+    <base />
+    <set-variable name="oid" value='@(context.Request.Headers.GetValueOrDefault("x-user-oid", "anonymous"))' />
+    <trace source="mcp-gw" severity="information">
+      <message>@("MCP call for oid=" + (string)context.Variables["oid"])</message>
+      <metadata name="oid" value='@((string)context.Variables["oid"])' />
+      <metadata name="gateway" value="mcp" />
+    </trace>
+    <emit-metric name="mcp-calls" value="1" namespace="aigw">
+      <dimension name="oid" value='@((string)context.Variables["oid"])' />
+      <dimension name="gateway" value="mcp" />
+    </emit-metric>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

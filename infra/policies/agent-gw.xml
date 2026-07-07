@@ -1,0 +1,37 @@
+<!--
+  Agent GW policy (placeholders replaced at deploy time).
+  1. Validates the end-user's Entra ID access token forwarded by the BFF.
+  2. Extracts the `oid` claim and forwards it downstream as the x-user-oid header, so the
+     agent (and, in turn, Model GW and MCP GW) can attribute every call to the user.
+  3. Emits token metrics with the oid dimension at the agent boundary.
+  Streaming (SSE) responses pass through unbuffered.
+-->
+<policies>
+  <inbound>
+    <base />
+    <validate-jwt header-name="Authorization" require-scheme="Bearer" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. A valid Entra ID access token is required." output-token-variable-name="jwt">
+      <openid-config url="__OPENID_CONFIG_URL__" />
+      <audiences>
+        <audience>__AUDIENCE_URI__</audience>
+        <audience>__AUDIENCE_APPID__</audience>
+      </audiences>
+    </validate-jwt>
+    <set-header name="x-user-oid" exists-action="override">
+      <value>@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", "unknown"))</value>
+    </set-header>
+    <llm-emit-token-metric namespace="aigw">
+      <dimension name="oid" value='@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", "unknown"))' />
+      <dimension name="API ID" />
+      <dimension name="gateway" value="agent" />
+    </llm-emit-token-metric>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

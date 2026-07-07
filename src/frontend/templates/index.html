@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Gateway チャット</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span>AI Gateway <small>e2e oid logging</small></span>
+        </div>
+        <div class="user" id="user">…</div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <h2>エージェント</h2>
+          <div id="agentList" class="agent-list"></div>
+          <button id="newChat" class="new-chat">＋ 新しい会話</button>
+          <p class="hint">
+            選択したエージェントとの会話は API Management 経由で呼び出され、あなたの oid が
+            すべてのログ・トークン集計に紐付きます。
+          </p>
+        </aside>
+
+        <section class="chat">
+          <div id="messages" class="messages"></div>
+          <form id="composer" class="composer">
+            <textarea
+              id="input"
+              rows="1"
+              placeholder="メッセージを入力… (Enter で送信 / Shift+Enter で改行)"
+              autocomplete="off"
+            ></textarea>
+            <button id="send" type="submit" aria-label="送信">送信</button>
+          </form>
+        </section>
+      </main>
+    </div>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

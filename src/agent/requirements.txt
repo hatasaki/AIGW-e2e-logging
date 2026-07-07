@@ -1,0 +1,7 @@
+# Microsoft Agent Framework (GA). The meta package pulls core + openai + mcp support.
+agent-framework==1.10.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# Used directly to attach the APIM subscription key to the MCP HTTP client.
+# Pinned to the version agent-framework 1.10.0 resolves to (avoids a pip conflict).
+httpx==0.28.1

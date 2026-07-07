@@ -1,0 +1,28 @@
+<!--
+  Model GW policy (Azure OpenAI v1, imported from the OpenAPI spec).
+  - Routes to the Foundry backend, which authenticates with APIM's managed identity.
+  - Emits per-oid LLM token metrics to Application Insights. Because the API is imported from
+    the Azure OpenAI spec, API Management parses the usage/token data natively (this does not
+    work for a passthrough API). The x-user-oid header is forwarded by the agent.
+  {backend-id} is replaced at deploy time with the Foundry backend resource name.
+-->
+<policies>
+  <inbound>
+    <base />
+    <set-backend-service backend-id="{backend-id}" />
+    <llm-emit-token-metric namespace="aigw">
+      <dimension name="oid" value='@(context.Request.Headers.GetValueOrDefault("x-user-oid", "anonymous"))' />
+      <dimension name="API ID" />
+      <dimension name="gateway" value="model" />
+    </llm-emit-token-metric>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

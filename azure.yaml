@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: aigw-e2e-logging
+metadata:
+  template: aigw-e2e-logging@1.0.0
+
+# Three deployable services:
+#   web           -> App Service (Flask BFF + UI, protected by Easy Auth)
+#   agent-expert  -> Container App (Azure expert agent, Learn MCP)
+#   agent-updates -> Container App (Azure updates agent, Release communications MCP)
+#
+# The two agents build from the SAME source image (./src/agent); their behaviour
+# (name, instructions, MCP endpoint) is driven by container environment variables
+# injected from Bicep.
+services:
+  web:
+    project: ./src/frontend
+    language: py
+    host: appservice
+
+  agent-expert:
+    project: ./src/agent
+    language: py
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      remoteBuild: true
+
+  agent-updates:
+    project: ./src/agent
+    language: py
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      remoteBuild: true
+
+# Provision first so build/deploy can read resource URLs, then package + deploy.
+workflows:
+  up:
+    steps:
+      - azd: provision
+      - azd: deploy --all
+
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: ./scripts/postprovision.ps1
+      continueOnError: false
+      interactive: true
+    posix:
+      shell: sh
+      run: ./scripts/postprovision.sh
+      continueOnError: false
+      interactive: true

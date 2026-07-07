@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "${AZURE_ENV_NAME}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "webLocation": {
+      "value": "${WEB_LOCATION=}"
+    },
+    "principalId": {
+      "value": "${AZURE_PRINCIPAL_ID}"
+    },
+    "modelName": {
+      "value": "${MODEL_NAME=gpt-5.4-mini}"
+    },
+    "modelVersion": {
+      "value": "${MODEL_VERSION=}"
+    },
+    "modelSkuName": {
+      "value": "${MODEL_SKU_NAME=GlobalStandard}"
+    },
+    "apimPublisherEmail": {
+      "value": "${APIM_PUBLISHER_EMAIL=admin@contoso.com}"
+    },
+    "apimPublisherName": {
+      "value": "${APIM_PUBLISHER_NAME=Contoso AI Platform}"
+    },
+    "appServicePlanSkuName": {
+      "value": "${APP_SERVICE_SKU_NAME=F1}"
+    },
+    "appServicePlanSkuTier": {
+      "value": "${APP_SERVICE_SKU_TIER=Free}"
+    },
+    "authClientId": {
+      "value": "${AUTH_CLIENT_ID=}"
+    },
+    "agentExpertExists": {
+      "value": "${SERVICE_AGENT_EXPERT_RESOURCE_EXISTS=false}"
+    },
+    "agentUpdatesExists": {
+      "value": "${SERVICE_AGENT_UPDATES_RESOURCE_EXISTS=false}"
+    }
+  }
+}
