@@ -14,6 +14,7 @@ param apiIdentifierUri string
 param tenantId string
 param agentGwExpertBaseUrl string
 param agentGwUpdatesBaseUrl string
+param agentGwDeepWikiBaseUrl string
 param oidHeaderName string
 
 // Free/Shared tiers don't support Always On.
@@ -67,6 +68,7 @@ resource appSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     // BFF -> Agent GW routing.
     AGENT_GW_EXPERT_BASE_URL: agentGwExpertBaseUrl
     AGENT_GW_UPDATES_BASE_URL: agentGwUpdatesBaseUrl
+    AGENT_GW_DEEPWIKI_BASE_URL: agentGwDeepWikiBaseUrl
     OID_HEADER_NAME: oidHeaderName
     // Placeholder; the postprovision hook writes the real Easy Auth client secret here.
     '${authClientCredentialSettingName}': 'placeholder-set-by-postprovision'

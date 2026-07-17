@@ -8,7 +8,7 @@
 <policies>
   <inbound>
     <base />
-    <set-variable name="oid" value='@(context.Request.Headers.GetValueOrDefault("x-user-oid", "anonymous"))' />
+    <set-variable name="oid" value='@(context.Request.Headers.GetValueOrDefault("x-client-user-oid", "anonymous"))' />
     <trace source="mcp-gw" severity="information">
       <message>@("MCP call for oid=" + (string)context.Variables["oid"])</message>
       <metadata name="oid" value='@((string)context.Variables["oid"])' />

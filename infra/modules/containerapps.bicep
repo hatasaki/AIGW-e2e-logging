@@ -17,6 +17,13 @@ param modelDeploymentName string
 param mcpLearnUrl string
 param mcpUpdatesUrl string
 param oidHeaderName string
+param tenantId string
+@description('Client ID of the Entra application representing the Agent backend API.')
+param agentBackendAuthClientId string
+@description('Tenant-qualified Application ID URI accepted by the Agent backend.')
+param agentBackendAuthAudience string
+@description('Client ID of the APIM UAMI allowed to invoke the Agent backend.')
+param agentBackendCallerClientId string
 
 @description('{ name, serviceTag, agentName, instructions } for the Azure expert agent.')
 param expertApp object
@@ -122,6 +129,49 @@ resource containerApps 'Microsoft.App/containerApps@2024-03-01' = [
         scale: {
           minReplicas: 1
           maxReplicas: 3
+        }
+      }
+    }
+  }
+]
+
+// Easy Auth validates the APIM managed-identity Bearer token before the MAF server runs. The backend
+// application emits v1 tokens so allowedApplications can match the `appid` caller claim.
+resource agentAuthConfigs 'Microsoft.App/containerApps/authConfigs@2024-03-01' = [
+  for (a, i) in apps: {
+    parent: containerApps[i]
+    name: 'current'
+    properties: {
+      platform: {
+        enabled: true
+        runtimeVersion: '~1'
+      }
+      globalValidation: {
+        unauthenticatedClientAction: 'Return401'
+      }
+      httpSettings: {
+        requireHttps: true
+      }
+      identityProviders: {
+        azureActiveDirectory: {
+          enabled: true
+          isAutoProvisioned: false
+          registration: {
+            clientId: agentBackendAuthClientId
+            // v1 issuer: omit /v2.0 as required by Container Apps Easy Auth.
+            openIdIssuer: '${environment().authentication.loginEndpoint}${tenantId}'
+          }
+          validation: {
+            allowedAudiences: [
+              agentBackendAuthAudience
+            ]
+            defaultAuthorizationPolicy: {
+              allowedPrincipals: {}
+              allowedApplications: [
+                agentBackendCallerClientId
+              ]
+            }
+          }
         }
       }
     }

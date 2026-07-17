@@ -1,4 +1,4 @@
-// MCP GW: two MCP servers exposed as transparent HTTP pass-through APIs.
+// MCP GW: MCP servers exposed as transparent HTTP pass-through APIs.
 //
 // The APIM preview type:'mcp' contract is inconsistent between the published Bicep types and
 // the resource provider, so we model the MCP gateways as plain HTTP APIs. MCP Streamable HTTP
@@ -14,7 +14,10 @@ param learnMcp object
 @description('{ path, displayName, backendUrl } for the Release communications MCP server.')
 param updatesMcp object
 
-var servers = [ learnMcp, updatesMcp ]
+@description('{ path, displayName, backendUrl } for the DeepWiki MCP server.')
+param deepWikiMcp object
+
+var servers = [ learnMcp, updatesMcp, deepWikiMcp ]
 // MCP Streamable HTTP needs POST (messages), GET (SSE stream) and DELETE (end session) on the
 // API root. apiIndex maps each operation to its API in the servers array above.
 var operations = [
@@ -24,6 +27,9 @@ var operations = [
   { apiIndex: 1, method: 'POST', name: 'post' }
   { apiIndex: 1, method: 'GET', name: 'get' }
   { apiIndex: 1, method: 'DELETE', name: 'delete' }
+  { apiIndex: 2, method: 'POST', name: 'post' }
+  { apiIndex: 2, method: 'GET', name: 'get' }
+  { apiIndex: 2, method: 'DELETE', name: 'delete' }
 ]
 
 resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
@@ -119,3 +125,4 @@ resource mcpDiagnostics 'Microsoft.ApiManagement/service/apis/diagnostics@2024-0
 
 output learnServerUrl string = '${apimService.properties.gatewayUrl}/${learnMcp.path}'
 output updatesServerUrl string = '${apimService.properties.gatewayUrl}/${updatesMcp.path}'
+output deepWikiServerUrl string = '${apimService.properties.gatewayUrl}/${deepWikiMcp.path}'

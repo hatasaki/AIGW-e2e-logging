@@ -22,9 +22,7 @@ class Settings:
     apim_subscription_key: str = os.getenv("APIM_SUBSCRIPTION_KEY", "")
 
     # Header used to carry the end-user oid to Model GW / MCP GW.
-    oid_header_name: str = os.getenv("OID_HEADER_NAME", "x-user-oid")
-
-    port: int = int(os.getenv("PORT", "8000"))
+    oid_header_name: str = os.getenv("OID_HEADER_NAME", "x-client-user-oid")
 
 
 settings = Settings()

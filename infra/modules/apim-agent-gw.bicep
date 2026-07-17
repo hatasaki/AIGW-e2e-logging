@@ -1,5 +1,5 @@
-// Agent GW: two Responses-API endpoints (expert, updates) that validate the user token,
-// derive oid and forward it to the Container Apps agents.
+// Agent GW: Responses endpoints that validate the user token, derive oid, and route to either
+// Container Apps agents or the Foundry Hosted DeepWiki agent.
 param apimName string
 param appInsightsLoggerId string
 param tenantId string
@@ -7,6 +7,10 @@ param tenantId string
 param audienceUri string
 @description('App (client) id also accepted as an audience.')
 param audienceAppId string
+@description('Application ID URI of the Agent backend API. APIM obtains a managed-identity token for this audience.')
+param agentBackendAudience string
+@description('Client ID of the user-assigned identity APIM uses to call the Agent backends.')
+param agentBackendCallerClientId string
 param oidHeaderName string
 
 @description('{ path, displayName, backendUrl } for the expert agent API.')
@@ -15,13 +19,18 @@ param expertApi object
 @description('{ path, displayName, backendUrl } for the updates agent API.')
 param updatesApi object
 
-var apis = [
-  union(expertApi, { name: 'agent-gw-expert' })
-  union(updatesApi, { name: 'agent-gw-updates' })
-]
+@description('{ path, displayName, backendUrl } for the Foundry Hosted DeepWiki agent API.')
+param deepWikiApi object
 
 var openIdConfigUrl = '${environment().authentication.loginEndpoint}${tenantId}/v2.0/.well-known/openid-configuration'
-var policyXml = replace(replace(replace(loadTextContent('../policies/agent-gw.xml'), '__OPENID_CONFIG_URL__', openIdConfigUrl), '__AUDIENCE_URI__', audienceUri), '__AUDIENCE_APPID__', audienceAppId)
+var containerPolicyXml = replace(replace(replace(replace(replace(loadTextContent('../policies/agent-gw.xml'), '__OPENID_CONFIG_URL__', openIdConfigUrl), '__AUDIENCE_URI__', audienceUri), '__AUDIENCE_APPID__', audienceAppId), '__AGENT_BACKEND_AUDIENCE__', agentBackendAudience), '__AGENT_BACKEND_CALLER_CLIENT_ID__', agentBackendCallerClientId)
+var hostedPolicyXml = replace(replace(replace(loadTextContent('../policies/agent-hosted-gw.xml'), '__OPENID_CONFIG_URL__', openIdConfigUrl), '__AUDIENCE_URI__', audienceUri), '__AUDIENCE_APPID__', audienceAppId)
+
+var apis = [
+  union(expertApi, { name: 'agent-gw-expert', policy: containerPolicyXml })
+  union(updatesApi, { name: 'agent-gw-updates', policy: containerPolicyXml })
+  union(deepWikiApi, { name: 'agent-gw-deepwiki', policy: hostedPolicyXml })
+]
 
 resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
   name: apimName
@@ -64,7 +73,7 @@ resource agentPolicies 'Microsoft.ApiManagement/service/apis/policies@2024-06-01
     name: 'policy'
     properties: {
       format: 'rawxml'
-      value: policyXml
+      value: a.policy
     }
     dependsOn: [ agentOps[i] ]
   }
@@ -138,3 +147,4 @@ resource agentLlmDiagnostics 'Microsoft.ApiManagement/service/apis/diagnostics@2
 
 output expertApiName string = agentApis[0].name
 output updatesApiName string = agentApis[1].name
+output deepWikiApiName string = agentApis[2].name

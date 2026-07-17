@@ -2,6 +2,7 @@
 param location string
 param tags object
 param accountName string
+param projectName string
 param modelName string
 param modelVersion string
 param modelSkuName string
@@ -23,9 +24,24 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   properties: {
     // Custom subdomain is required for Entra ID (AAD) token auth and the OpenAI endpoint.
     customSubDomainName: accountName
+    allowProjectManagement: true
     publicNetworkAccess: 'Enabled'
     // Force Entra ID auth only (APIM authenticates with its managed identity).
     disableLocalAuth: true
+  }
+}
+
+resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  parent: account
+  name: projectName
+  location: location
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    displayName: 'AI Gateway hosted agents'
+    description: 'Microsoft Foundry project for hosted agents behind API Management.'
   }
 }
 
@@ -59,8 +75,24 @@ resource userOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
+// The azd Foundry extension deploys Hosted Agent versions through the project data plane.
+var foundryProjectManagerRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'eadc314b-1a2d-4efa-be10-5d325db5065e')
+resource deployerProjectManager 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(principalId)) {
+  name: guid(project.id, principalId, foundryProjectManagerRoleId)
+  scope: project
+  properties: {
+    principalId: principalId
+    roleDefinitionId: foundryProjectManagerRoleId
+    principalType: 'User'
+  }
+}
+
 output accountName string = account.name
 output accountId string = account.id
 output principalId string = account.identity.principalId
 output openAiEndpoint string = 'https://${accountName}.openai.azure.com'
 output modelDeploymentName string = deployment.name
+output projectName string = project.name
+output projectId string = project.id
+output projectEndpoint string = 'https://${accountName}.services.ai.azure.com/api/projects/${project.name}'
+output projectPrincipalId string = project.identity.principalId

@@ -1,0 +1,8 @@
+# Latest stable Microsoft Agent Framework core at implementation time (2026-07-17).
+# Use focused components instead of the all-integrations meta-package: the latter pulls the
+# unused Hyperlight adapter, whose WASM backend wheel is unavailable in Foundry remote builds.
+agent-framework-core==1.11.0
+agent-framework-openai==1.10.1
+# Latest Foundry Hosted Agent adapter; Hosted Agent support remains preview.
+agent-framework-foundry-hosting==1.0.0a260709
+httpx==0.28.1

@@ -2,7 +2,7 @@
 Flask BFF + UI for the AI gateway demo.
 
 The App Service runs behind Easy Auth (Entra ID). This BFF:
-  * reads the signed-in user's identity from Easy Auth headers,
+    * reads the signed-in user's identity from Easy Auth headers,
   * forwards the user's access token (X-MS-TOKEN-AAD-ACCESS-TOKEN) as a Bearer token to
     APIM Agent GW, which validates it and derives the oid,
   * proxies the streaming Responses (SSE) back to the browser.
@@ -28,6 +28,11 @@ AGENTS: dict[str, dict[str, str]] = {
         "label": "Azure アップデート",
         "description": "リリース情報（MCP）を参照する Azure 更新情報エージェント",
         "base_url": os.getenv("AGENT_GW_UPDATES_BASE_URL", ""),
+    },
+    "deepwiki": {
+        "label": "DeepWiki",
+        "description": "DeepWiki（MCP）を参照してリポジトリを調査する Foundry Hosted Agent",
+        "base_url": os.getenv("AGENT_GW_DEEPWIKI_BASE_URL", ""),
     },
 }
 

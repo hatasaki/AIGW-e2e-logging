@@ -1,12 +1,9 @@
 <!--
-  Agent GW policy (placeholders replaced at deploy time).
-  1. Validates the end-user's Entra ID access token forwarded by the BFF.
-  2. Extracts the `oid` claim and forwards it downstream as the x-client-user-oid header, so the
-     agent (and, in turn, Model GW and MCP GW) can attribute every call to the user.
-  3. Replaces the user Authorization header with an APIM managed-identity token for the Agent
-     backend. Container Apps Easy Auth accepts only APIM's dedicated caller identity.
-  4. Emits token metrics with the oid dimension at the agent boundary.
-  Streaming (SSE) responses pass through unbuffered.
+  Foundry Hosted Agent GW policy (placeholders replaced at deploy time).
+  1. Validates the BFF's end-user token and derives the trusted Entra oid.
+  2. Uses the x-client-* pass-through prefix required by the Hosted Agent gateway.
+  3. Rewrites the public Agent GW Responses path to the Foundry Hosted Agent endpoint.
+  4. Authenticates APIM to Foundry with APIM's system-assigned managed identity.
 -->
 <policies>
   <inbound>
@@ -21,20 +18,21 @@
     <set-header name="x-client-user-oid" exists-action="override">
       <value>@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", "unknown"))</value>
     </set-header>
-    <authentication-managed-identity resource="__AGENT_BACKEND_AUDIENCE__" client-id="__AGENT_BACKEND_CALLER_CLIENT_ID__" ignore-error="false" />
+    <set-header name="Foundry-Features" exists-action="override">
+      <value>HostedAgents=V1Preview</value>
+    </set-header>
+    <set-query-parameter name="api-version" exists-action="override">
+      <value>v1</value>
+    </set-query-parameter>
+    <rewrite-uri template="/responses" />
+    <authentication-managed-identity resource="https://ai.azure.com" ignore-error="false" />
     <llm-emit-token-metric namespace="aigw">
       <dimension name="oid" value='@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", "unknown"))' />
       <dimension name="API ID" />
       <dimension name="gateway" value="agent" />
     </llm-emit-token-metric>
   </inbound>
-  <backend>
-    <base />
-  </backend>
-  <outbound>
-    <base />
-  </outbound>
-  <on-error>
-    <base />
-  </on-error>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
 </policies>

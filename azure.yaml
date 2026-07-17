@@ -1,54 +1,94 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+requiredVersions:
+    extensions:
+        azure.ai.agents: '>=1.0.0-beta.5'
+        azure.ai.projects: '>=1.0.0-beta.2'
 name: aigw-e2e-logging
 metadata:
-  template: aigw-e2e-logging@1.0.0
-
-# Three deployable services:
-#   web           -> App Service (Flask BFF + UI, protected by Easy Auth)
-#   agent-expert  -> Container App (Azure expert agent, Learn MCP)
-#   agent-updates -> Container App (Azure updates agent, Release communications MCP)
-#
-# The two agents build from the SAME source image (./src/agent); their behaviour
-# (name, instructions, MCP endpoint) is driven by container environment variables
-# injected from Bicep.
+    template: aigw-e2e-logging@1.0.0
 services:
-  web:
-    project: ./src/frontend
-    language: py
-    host: appservice
-
-  agent-expert:
-    project: ./src/agent
-    language: py
-    host: containerapp
-    docker:
-      path: ./Dockerfile
-      remoteBuild: true
-
-  agent-updates:
-    project: ./src/agent
-    language: py
-    host: containerapp
-    docker:
-      path: ./Dockerfile
-      remoteBuild: true
-
-# Provision first so build/deploy can read resource URLs, then package + deploy.
-workflows:
-  up:
-    steps:
-      - azd: provision
-      - azd: deploy --all
-
+    agent-deepwiki:
+        project: ./src/agent-deepwiki
+        host: azure.ai.agent
+        language: python
+        uses:
+            - ai-project
+        codeConfiguration:
+            dependencyResolution: remote_build
+            entryPoint: main.py
+            runtime: python_3_13
+        container:
+            resources:
+                cpu: "0.5"
+                memory: 1Gi
+        description: Foundry Hosted Agent that researches repositories through DeepWiki MCP.
+        displayName: DeepWiki Agent
+        environmentVariables:
+            - name: MODEL_GW_BASE_URL
+              value: ${APIM_GATEWAY_URL}/model/openai/v1
+            - name: MODEL_DEPLOYMENT_NAME
+              value: ${MODEL_DEPLOYMENT_NAME}
+            - name: MCP_SERVER_URL
+              value: ${MCP_GW_DEEPWIKI_URL}
+            - name: OID_HEADER_NAME
+              value: x-client-user-oid
+            - name: APIM_SUBSCRIPTION_KEY
+              value: ${{connections.apim-agent-subscription.credentials.api_key}}
+        kind: hosted
+        name: deepwiki-agent
+        protocols:
+            - protocol: responses
+              version: 2.0.0
+    agent-expert:
+        project: ./src/agent
+        host: containerapp
+        language: python
+        docker:
+            path: ./Dockerfile
+            remoteBuild: true
+    agent-updates:
+        project: ./src/agent
+        host: containerapp
+        language: python
+        docker:
+            path: ./Dockerfile
+            remoteBuild: true
+    ai-project:
+        project: ""
+        host: azure.ai.project
+        language: ""
+        endpoint: ${FOUNDRY_PROJECT_ENDPOINT}
+    web:
+        project: ./src/frontend
+        host: appservice
+        language: python
 hooks:
-  postprovision:
-    windows:
-      shell: pwsh
-      run: ./scripts/postprovision.ps1
-      continueOnError: false
-      interactive: true
-    posix:
-      shell: sh
-      run: ./scripts/postprovision.sh
-      continueOnError: false
-      interactive: true
+    postprovision:
+        windows:
+            shell: pwsh
+            run: ./scripts/postprovision.ps1
+            interactive: true
+        posix:
+            shell: sh
+            run: ./scripts/postprovision.sh
+            interactive: true
+    predeploy:
+        windows:
+            shell: pwsh
+            run: ./scripts/predeploy.ps1
+            interactive: true
+        posix:
+            shell: sh
+            run: ./scripts/predeploy.sh
+            interactive: true
+workflows:
+    up:
+        steps:
+            - azd:
+                args:
+                    - provision
+            - azd:
+                args:
+                    - deploy
+                    - --all

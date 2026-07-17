@@ -2,10 +2,13 @@
 // Sample KQL for oid-based search & per-user token accounting.
 //
 // Telemetry destinations:
-//   * AppRequests (App Insights)   - one row per gateway hop (Agent GW / Model GW / MCP GW).
-//                    The caller's Entra oid is logged as the request header "x-user-oid" and
-//                    surfaces in Properties under the key "Request-x-user-oid". The APIM
-//                    request id is in Properties["Request Id"] (joins to LLM-log CorrelationId).
+//   * AppRequests (App Insights)   - inbound APIM rows. Model/MCP GW requests already contain the
+//                    agent-propagated oid. Agent GW inbound rows intentionally do not contain a
+//                    trusted oid because the BFF sends only the user JWT.
+//   * AppDependencies (App Insights) - APIM backend rows. Agent GW adds x-client-user-oid after
+//                    JWT validation, so its trusted oid is recorded here. In both tables it
+//                    surfaces as Properties["Request-x-client-user-oid"]. The APIM request id is
+//                    Properties["Request Id"] (joins to LLM-log CorrelationId).
 //   * AppMetrics (App Insights)    - custom token metrics emitted by the APIM
 //                    llm-emit-token-metric policy, carrying oid + gateway as custom dimensions
 //                    in the Properties bag. Metric names: "Total Tokens", "Prompt Tokens",
@@ -21,28 +24,53 @@
 //   - These queries target the Log Analytics workspace directly (workspace-based App Insights),
 //     so they use AppRequests / AppMetrics. Inside the Application Insights resource "Logs"
 //     blade you can use the classic aliases requests / customMetrics instead, and the oid key
-//     is customDimensions["Request-x-user-oid"].
+//     is customDimensions["Request-x-client-user-oid"].
 //   - Replace <OID> with a user's Entra object id.
+//   - BFF intentionally sends no oid. Treat only Agent GW backend dependencies and downstream
+//     Model/MCP requests as trusted oid telemetry; Agent GW inbound headers are untrusted input.
+//   - Foundry x-ms-user-identity delegation is not enabled. x-client-user-oid is an
+//     observability/propagation value derived by APIM from the validated JWT.
 // =====================================================================================
 
 // -------------------------------------------------------------------------------------
-// 1) Per-oid gateway activity (log search by oid across Agent GW / Model GW / MCP GW).
+// 1) Per-oid gateway activity across Agent GW / Model GW / MCP GW.
 // -------------------------------------------------------------------------------------
-AppRequests
-| where TimeGenerated > ago(24h)
-| extend oid = tostring(Properties['Request-x-user-oid'])
+let agentGateway =
+    AppDependencies
+    | where TimeGenerated > ago(24h)
+    | where Target has "azurecontainerapps" or Target has ".services.ai.azure.com"
+    | extend oid = tostring(Properties['Request-x-client-user-oid']), gateway = "agent";
+let downstreamGateways =
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | where Url has "/model/" or Url has "/mcp-"
+    | extend oid = tostring(Properties['Request-x-client-user-oid']),
+             gateway = iff(Url has "/model/", "model", "mcp");
+union agentGateway, downstreamGateways
 | where isnotempty(oid)
-| summarize requests = count(), gateways = make_set(Name) by oid
+| summarize requests = count(), gateways = make_set(gateway) by oid
 | order by requests desc
 
 // -------------------------------------------------------------------------------------
-// 2) Every gateway hop for one user (timeline), including Model GW and MCP GW calls.
+// 2) Every trusted gateway hop for one user (timeline).
 // -------------------------------------------------------------------------------------
-AppRequests
-| where TimeGenerated > ago(24h)
-| extend oid = tostring(Properties['Request-x-user-oid'])
-| where oid == "<OID>"
-| project TimeGenerated, Name, Url, ResultCode, DurationMs, OperationId, oid
+let targetOid = "<OID>";
+let agentGateway =
+    AppDependencies
+    | where TimeGenerated > ago(24h)
+    | where Target has "azurecontainerapps" or Target has ".services.ai.azure.com"
+    | extend oid = tostring(Properties['Request-x-client-user-oid'])
+    | project TimeGenerated, Gateway = "agent", Name, Endpoint = Target,
+              ResultCode, DurationMs, OperationId, oid;
+let downstreamGateways =
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | where Url has "/model/" or Url has "/mcp-"
+    | extend oid = tostring(Properties['Request-x-client-user-oid'])
+    | project TimeGenerated, Gateway = iff(Url has "/model/", "model", "mcp"),
+              Name, Endpoint = Url, ResultCode, DurationMs, OperationId, oid;
+union agentGateway, downstreamGateways
+| where oid == targetOid
 | order by TimeGenerated desc
 
 // -------------------------------------------------------------------------------------
@@ -52,17 +80,18 @@ AppRequests
 AppRequests
 | where TimeGenerated > ago(24h)
 | where Name has "/mcp-"
-| extend oid = tostring(Properties['Request-x-user-oid'])
+| extend oid = tostring(Properties['Request-x-client-user-oid'])
 | where isnotempty(oid)
 | summarize calls = count() by oid, mcpServer = tostring(split(Name, " ")[-1]), method = tostring(split(Name, " ")[0])
 | order by oid asc, calls desc
 
 
 // -------------------------------------------------------------------------------------
-// 4) Per-oid model token consumption (custom metric from llm-emit-token-metric).
+// 4) Low-latency per-oid token totals (custom metric from llm-emit-token-metric).
 //    dimensions oid + gateway live in the Properties bag. Requires metrics:true on the APIM
-//    applicationinsights diagnostic (configured in this repo). This is the primary, most
-//    reliable per-user token source (works for streaming and non-streaming).
+//    applicationinsights diagnostic (configured in this repo). This works for streaming and
+//    non-streaming but does not include model name. Use query #8 for authoritative per-model
+//    billing/accounting.
 // -------------------------------------------------------------------------------------
 AppMetrics
 | where TimeGenerated > ago(24h)
@@ -73,7 +102,7 @@ AppMetrics
 | order by oid asc, Name asc
 
 // -------------------------------------------------------------------------------------
-// 5) Token consumption for a single user over time.
+// 5) Low-latency token consumption for a single user over time (model name unavailable).
 // -------------------------------------------------------------------------------------
 AppMetrics
 | where TimeGenerated > ago(7d)
@@ -92,7 +121,7 @@ AppMetrics
 AppRequests
 | where TimeGenerated > ago(24h)
 | where Name == "POST /model/openai/v1/responses"
-| extend oid = tostring(Properties['Request-x-user-oid'])
+| extend oid = tostring(Properties['Request-x-client-user-oid'])
 | extend body = tostring(Properties['Response-Body'])
 | extend inTok = toint(extract(@'"input_tokens":\s*(\d+)', 1, body))
 | extend outTok = toint(extract(@'"output_tokens":\s*(\d+)', 1, body))
@@ -122,14 +151,14 @@ ApiManagementGatewayLlmLog
 | order by TimeGenerated desc
 
 // -------------------------------------------------------------------------------------
-// 8) Native LLM logging joined with oid (per-user prompts/completions/tokens).
+// 8) AUTHORITATIVE BILLING VIEW: native LLM logging joined with oid and grouped by model.
 //    The LLM content log has no oid column, so correlate its CorrelationId with the APIM
 //    request id captured on the App Insights request telemetry (Properties["Request Id"]).
 // -------------------------------------------------------------------------------------
 let userReqs =
     AppRequests
     | where TimeGenerated > ago(24h)
-    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | extend oid = tostring(Properties['Request-x-client-user-oid']), reqId = tostring(Properties['Request Id'])
     | where isnotempty(oid) and isnotempty(reqId)
     | distinct reqId, oid;
 ApiManagementGatewayLlmLog
@@ -137,9 +166,8 @@ ApiManagementGatewayLlmLog
 | where TotalTokens > 0
 | join kind=inner (userReqs) on $left.CorrelationId == $right.reqId
 | summarize PromptTokens = sum(PromptTokens), CompletionTokens = sum(CompletionTokens),
-            TotalTokens = sum(TotalTokens), Requests = dcount(CorrelationId),
-            Model = any(DeploymentName)
-  by oid
+                        TotalTokens = sum(TotalTokens), Requests = dcount(CorrelationId)
+    by oid, Model = DeploymentName
 | order by TotalTokens desc
 
 // -------------------------------------------------------------------------------------
@@ -148,7 +176,7 @@ ApiManagementGatewayLlmLog
 let userReqs =
     AppRequests
     | where TimeGenerated > ago(24h)
-    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | extend oid = tostring(Properties['Request-x-client-user-oid']), reqId = tostring(Properties['Request Id'])
     | where oid == "<OID>" and isnotempty(reqId)
     | distinct reqId, oid;
 ApiManagementGatewayLlmLog
@@ -169,7 +197,7 @@ ApiManagementGatewayLlmLog
 let userReqs =
     AppRequests
     | where TimeGenerated > ago(24h)
-    | extend oid = tostring(Properties['Request-x-user-oid']), reqId = tostring(Properties['Request Id'])
+    | extend oid = tostring(Properties['Request-x-client-user-oid']), reqId = tostring(Properties['Request Id'])
     | where isnotempty(oid) and isnotempty(reqId)
     | distinct reqId, oid;
 AzureDiagnostics
@@ -180,4 +208,52 @@ AzureDiagnostics
             TotalTokens = sum(totalTokens_d), Requests = dcount(CorrelationId)
   by oid, DeploymentName = tostring(column_ifexists("DeploymentName_s", ""))
 | order by TotalTokens desc
+
+// -------------------------------------------------------------------------------------
+// 9) Agent GW backend outcomes by agent and trusted oid.
+//    Container Apps targets are authenticated with the dedicated APIM UAMI; the Foundry
+//    Hosted Agent target is authenticated with APIM system MI + Foundry Agent Consumer.
+// -------------------------------------------------------------------------------------
+AppDependencies
+| where TimeGenerated > ago(24h)
+| where Target has "azurecontainerapps" or Target has ".services.ai.azure.com"
+| extend oid = tostring(Properties['Request-x-client-user-oid'])
+| where isnotempty(oid)
+| extend agent = case(
+    Target has "ca-expert-", "expert",
+    Target has "ca-updates-", "updates",
+    Target has ".services.ai.azure.com", "deepwiki",
+    "other")
+| summarize calls = count(), resultCodes = make_set(ResultCode),
+            failures = countif(toint(ResultCode) >= 400)
+  by oid, agent, Target
+| order by oid asc, agent asc
+
+// -------------------------------------------------------------------------------------
+// 10) Agent GW authentication failures.
+//     There is intentionally no trusted oid on these inbound rows: JWT validation failed or
+//     no token was supplied before APIM could derive oid.
+// -------------------------------------------------------------------------------------
+AppRequests
+| where TimeGenerated > ago(24h)
+| where Url has "/agents/"
+| where ResultCode in ("401", "403")
+| summarize denied = count() by Url, ResultCode, bin(TimeGenerated, 1h)
+| order by TimeGenerated desc
+
+// -------------------------------------------------------------------------------------
+// 11) Container Apps MAF ResponsesHostServer runtime and request health.
+// -------------------------------------------------------------------------------------
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h)
+| where ContainerAppName_s startswith "ca-expert-"
+    or ContainerAppName_s startswith "ca-updates-"
+| where ContainerName_s == "agent"
+| where Log_s has_any (
+    "Responses protocol",
+    "AgentServerHost started",
+    "Inbound POST /openai/v1/responses completed",
+    "Traceback")
+| project TimeGenerated, ContainerAppName_s, RevisionName_s, Log_s
+| order by TimeGenerated desc
 

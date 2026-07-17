@@ -10,6 +10,8 @@ param publisherName string
 param appInsightsName string
 param logAnalyticsWorkspaceId string
 param oidHeaderName string
+@description('Resource ID of the user-assigned identity dedicated to APIM-to-Agent authentication.')
+param agentBackendCallerIdentityId string
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' existing = {
   name: appInsightsName
@@ -24,7 +26,10 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
     capacity: skuCapacity
   }
   identity: {
-    type: 'SystemAssigned'
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: {
+      '${agentBackendCallerIdentityId}': {}
+    }
   }
   properties: {
     publisherEmail: publisherEmail

@@ -13,5 +13,5 @@ COPY . ./
 
 EXPOSE 8000
 
-# PORT is provided by Container Apps; default to 8000 locally.
-CMD ["sh", "-c", "uvicorn responses_app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# ResponsesHostServer resolves the PORT environment variable and runs Hypercorn itself.
+CMD ["python", "main.py"]

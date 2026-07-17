@@ -61,6 +61,9 @@ param learnMcpUrl string = 'https://learn.microsoft.com/api/mcp'
 @description('Backend MCP server for the Azure updates agent.')
 param updatesMcpUrl string = 'https://www.microsoft.com/releasecommunications/mcp'
 
+@description('Backend MCP server for the Foundry Hosted DeepWiki agent.')
+param deepWikiMcpUrl string = 'https://mcp.deepwiki.com/mcp'
+
 // ---- Entra ID app registration ----
 @description('When true, creates the Entra app registration for the frontend/BFF via the Microsoft Graph Bicep extension.')
 param createAuthApp bool = true
@@ -108,6 +111,7 @@ module resources 'resources.bicep' = {
     appServicePlanSkuTier: appServicePlanSkuTier
     learnMcpUrl: learnMcpUrl
     updatesMcpUrl: updatesMcpUrl
+    deepWikiMcpUrl: deepWikiMcpUrl
     createAuthApp: createAuthApp
     authClientId: authClientId
     agentExpertExists: agentExpertExists
@@ -128,11 +132,18 @@ output LOG_ANALYTICS_WORKSPACE_ID string = resources.outputs.logAnalyticsWorkspa
 
 // APIM gateway URLs
 output APIM_GATEWAY_URL string = resources.outputs.apimGatewayUrl
+output APIM_SERVICE_NAME string = resources.outputs.apimName
 output AGENT_GW_EXPERT_URL string = resources.outputs.agentGwExpertUrl
 output AGENT_GW_UPDATES_URL string = resources.outputs.agentGwUpdatesUrl
+output AGENT_GW_DEEPWIKI_URL string = resources.outputs.agentGwDeepWikiUrl
 output MODEL_GW_URL string = resources.outputs.modelGwUrl
 output MCP_GW_LEARN_URL string = resources.outputs.mcpGwLearnUrl
 output MCP_GW_UPDATES_URL string = resources.outputs.mcpGwUpdatesUrl
+output MCP_GW_DEEPWIKI_URL string = resources.outputs.mcpGwDeepWikiUrl
+
+// Existing project consumed by the azure.ai.project / azure.ai.agent azd services.
+output FOUNDRY_PROJECT_ENDPOINT string = resources.outputs.foundryProjectEndpoint
+output AZURE_AI_PROJECT_ID string = resources.outputs.foundryProjectId
 
 // Service resource names (used by hooks)
 output SERVICE_WEB_NAME string = resources.outputs.webAppName
@@ -143,5 +154,9 @@ output SERVICE_AGENT_UPDATES_NAME string = resources.outputs.agentUpdatesAppName
 // Entra / auth
 output AUTH_CLIENT_ID string = resources.outputs.authClientId
 output AUTH_APP_OBJECT_ID string = resources.outputs.authAppObjectId
+output AGENT_BACKEND_AUTH_CLIENT_ID string = resources.outputs.agentBackendAuthClientId
+output AGENT_BACKEND_AUTH_AUDIENCE string = resources.outputs.agentBackendAuthAudience
+output AGENT_BACKEND_CALLER_CLIENT_ID string = resources.outputs.agentBackendCallerClientId
+output AGENT_BACKEND_CALLER_PRINCIPAL_ID string = resources.outputs.agentBackendCallerPrincipalId
 output AUTH_CLIENT_SECRET_SETTING_NAME string = resources.outputs.authClientSecretSettingName
 output MODEL_DEPLOYMENT_NAME string = resources.outputs.modelDeploymentName
